@@ -50,12 +50,9 @@ import org.yamcs.yarch.rocksdb.DescendingRangeIterator;
 public class SegmentIterator implements ParchiveIterator<ParameterValueSegment> {
     private final ParameterId parameterId;
     private final int parameterGroupId;
-    final byte[] rangeStart;
-    final byte[] rangeStop;
 
     ParameterArchive parchive;
 
-    SegmentEncoderDecoder segmentEncoder = new SegmentEncoderDecoder();
     List<Partition> partitions;
 
     // iterates over partitions
@@ -84,11 +81,7 @@ public class SegmentIterator implements ParchiveIterator<ParameterValueSegment> 
         this.retrieveParameterStatus = req.isRetrieveParameterStatus();
 
         int pid = parameterId.getPid();
-        // we use the 0 and Byte.MAX_VALUE for the segment type to make sure we catch all types.
-        // ENG_VALUE=0 and PARAMETER_STATUS=2 could have been used as well
-        rangeStart = new SegmentKey(pid, parameterGroupId, ParameterArchive.getIntervalStart(req.start),
-                (byte) 0).encode();
-        rangeStop = new SegmentKey(pid, parameterGroupId, req.stop, Byte.MAX_VALUE).encode();
+
         rtfiller = parchive.getRealtimeFiller();
 
         if (retrieveEngValues || retrieveRawValues || retrieveParameterStatus) {
@@ -219,6 +212,18 @@ public class SegmentIterator implements ParchiveIterator<ParameterValueSegment> 
             } catch (RocksDBException | IOException e) {
                 throw new ParameterArchiveException("Failed to create iterator", e);
             }
+
+            int pid = parameterId.getPid();
+
+            // we use the 0 and Byte.MAX_VALUE for the segment type to make sure we catch all types.
+            // ENG_VALUE=0 and PARAMETER_STATUS=2 could have been used as well
+            var startk = new SegmentKey(pid, parameterGroupId, ParameterArchive.getIntervalStart(start),
+                    (byte) 0);
+            byte[] rangeStart = partition.version == 0 ? startk.encodeV0() : startk.encode();
+            var stopk = new SegmentKey(pid, parameterGroupId, stop, Byte.MAX_VALUE);
+
+            byte[] rangeStop = partition.version == 0 ? stopk.encodeV0() : stopk.encode();
+
             if (ascending) {
                 dbIterator = new AscendingRangeIterator(iterator, rangeStart, rangeStop);
             } else {
@@ -240,7 +245,8 @@ public class SegmentIterator implements ParchiveIterator<ParameterValueSegment> 
         }
 
         void nextAscending() {
-            currentKey = SegmentKey.decode(dbIterator.key());
+            currentKey = partition.version == 0 ? SegmentKey.decodeV0(dbIterator.key())
+                    : SegmentKey.decode(dbIterator.key());
             valid = true;
 
             SegmentKey key = currentKey;
@@ -248,7 +254,8 @@ public class SegmentIterator implements ParchiveIterator<ParameterValueSegment> 
                 loadSegment(key.type);
                 dbIterator.next();
                 if (dbIterator.isValid()) {
-                    key = SegmentKey.decode(dbIterator.key());
+                    key = partition.version == 0 ? SegmentKey.decodeV0(dbIterator.key())
+                            : SegmentKey.decode(dbIterator.key());
                 } else {
                     break;
                 }
@@ -256,7 +263,8 @@ public class SegmentIterator implements ParchiveIterator<ParameterValueSegment> 
         }
 
         void nextDescending() {
-            currentKey = SegmentKey.decode(dbIterator.key());
+            currentKey = partition.version == 0 ? SegmentKey.decodeV0(dbIterator.key())
+                    : SegmentKey.decode(dbIterator.key());
             valid = true;
             SegmentKey key = currentKey;
 
@@ -264,7 +272,8 @@ public class SegmentIterator implements ParchiveIterator<ParameterValueSegment> 
                 loadSegment(key.type);
                 dbIterator.prev();
                 if (dbIterator.isValid()) {
-                    key = SegmentKey.decode(dbIterator.key());
+                    key = partition.version == 0 ? SegmentKey.decodeV0(dbIterator.key())
+                            : SegmentKey.decode(dbIterator.key());
                 } else {
                     break;
                 }
@@ -318,22 +327,22 @@ public class SegmentIterator implements ParchiveIterator<ParameterValueSegment> 
 
                 ValueSegment _engValueSegment = null;
                 if (currentEngValueSegment != null) {
-                    _engValueSegment = (ValueSegment) segmentEncoder.decode(currentEngValueSegment, segStart);
+                    _engValueSegment = (ValueSegment) SegmentEncoderDecoder.decode(currentEngValueSegment, segStart);
                 }
 
                 ValueSegment engValueSegment = retrieveEngValues ? _engValueSegment : null;
 
                 ValueSegment rawValueSegment = null;
                 if (currentRawValueSegment != null) {
-                    rawValueSegment = (ValueSegment) segmentEncoder.decode(currentRawValueSegment, segStart);
+                    rawValueSegment = (ValueSegment) SegmentEncoderDecoder.decode(currentRawValueSegment, segStart);
                 } else if (retrieveRawValues) {
                     rawValueSegment = _engValueSegment;
                 }
                 ParameterStatusSegment parameterStatusSegment = currentStatusSegment == null ? null
-                        : (ParameterStatusSegment) segmentEncoder.decode(currentStatusSegment,
+                        : (ParameterStatusSegment) SegmentEncoderDecoder.decode(currentStatusSegment,
                                 segStart);
                 SortedIntArray gaps = currentGaps == null || segStart != currentGapsSegmentStart ? null
-                        : segmentEncoder.decodeGaps(currentGaps);
+                        : SegmentEncoderDecoder.decodeGaps(currentGaps);
 
                 ParameterValueSegment pvs = new ParameterValueSegment(parameterId.getPid(), timeSegment,
                         engValueSegment, rawValueSegment, parameterStatusSegment, gaps);

@@ -7,6 +7,7 @@ import java.util.Map;
 import org.rocksdb.RocksDBException;
 import org.yamcs.Processor;
 
+
 import static org.yamcs.parameterarchive.ParameterArchive.*;
 
 class BackFillerTask extends AbstractArchiveFiller {
@@ -24,7 +25,6 @@ class BackFillerTask extends AbstractArchiveFiller {
         }
     }
 
-
     public void setProcessor(Processor proc) {
         this.processor = proc;
     }
@@ -41,32 +41,38 @@ class BackFillerTask extends AbstractArchiveFiller {
         }
     }
 
-
     @Override
     protected void processParameters(long t, BasicParameterList pvList) {
-
         try {
             var pg = parameterGroupIdMap.getGroup(pvList.getPids());
             var parameterGroupId = pg.id;
+            var interval = getInterval(t);
             PGSegment pgs = pgSegments.computeIfAbsent(parameterGroupId,
-                    id -> new PGSegment(parameterGroupId, t, pg.pids.size()));
+                    id -> new PGSegment(parameterGroupId, interval, pg.pids.size()));
 
-            if (getInterval(t) != pgs.getInterval()) {
+            if (interval != pgs.getInterval()) {
                 writeToArchive(pgs);
-                pgs = new PGSegment(parameterGroupId, t, pg.pids.size());
-                pgSegments.put(parameterGroupId, pgs);
+                var pgs1 = new PGSegment(parameterGroupId, interval, pg.pids.size());
+                pgs1.addRecord(t, pvList);
+                pgSegments.put(parameterGroupId, pgs1);
+
+            } else if (pgs.size() >= maxSegmentSize) {
+                pgs.freeze();
+                writeToArchive(pgs);
+
+                var pgs1 = new PGSegment(parameterGroupId, interval, pg.pids.size());
+                pgs1.addRecord(t, pvList);
+                pgs1.continueSegment(pgs);
+                pgSegments.put(parameterGroupId, pgs1);
+            } else {
+                pgs.addRecord(t, pvList);
             }
 
-            pgs.addRecord(t, pvList);
-            if (pgs.size() >= maxSegmentSize) {
-                writeToArchive(pgs);
-                pgSegments.remove(parameterGroupId);
-            }
         } catch (RocksDBException e) {
             log.error("Error writing to the parameter archive", e);
         }
-    }
 
+    }
 
     @Override
     protected void abort() {
