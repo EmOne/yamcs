@@ -42,7 +42,6 @@ import org.yamcs.xtce.Parameter;
 import org.yamcs.xtce.ParameterType;
 import org.yamcs.xtce.PolynomialCalibrator;
 import org.yamcs.xtce.SplineCalibrator;
-import org.yamcs.mdb.Mdb;
 
 /**
  * Holds information related and required for XTCE processing. It is separated from Processor because it has to be
@@ -78,7 +77,7 @@ public class ProcessorData {
     Map<Parameter, ParameterType> typeOverrides = new HashMap<>();
     private Set<ParameterTypeListener> typeListeners = new CopyOnWriteArraySet<>();
 
-    String yamcsInstance;
+    final String yamcsInstance;
 
     private ProcessorConfig processorConfig;
 
@@ -273,21 +272,13 @@ public class ProcessorData {
     }
 
     public DataDecoder getDataDecoder(DataEncoding de) {
-        DataDecoder dd = decoders.get(de);
-        if (dd == null) {
-            dd = DataDecoderFactory.get(de.getFromBinaryTransformAlgorithm());
-        }
-
-        return dd;
+        return decoders.computeIfAbsent(de,
+                de1 -> DataDecoderFactory.get(de1.getFromBinaryTransformAlgorithm(), this));
     }
 
     public DataEncoder getDataEncoder(DataEncoding de) {
-        DataEncoder enc = encoders.get(de);
-        if (enc == null) {
-            enc = DataEncoderFactory.get(de.getToBinaryTransformAlgorithm());
-        }
-
-        return enc;
+        return encoders.computeIfAbsent(de,
+                de1 -> DataEncoderFactory.get(de1.getToBinaryTransformAlgorithm(), this));
     }
 
     public Mdb getMdb() {
