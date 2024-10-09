@@ -4,7 +4,7 @@
 
 	<groupId>org.yamcs</groupId>
 	<artifactId>yamcs</artifactId>
-	<version>5.10.0-SNAPSHOT</version>
+	<version>5.10.4-SNAPSHOT</version>
 
 	<packaging>pom</packaging>
 
@@ -50,7 +50,7 @@
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<nettyVersion>4.1.94.Final</nettyVersion>
 		<protobufVersion>3.19.6</protobufVersion>
-		<rocksdbVersion>9.4.0.5</rocksdbVersion>
+		<rocksdbVersion>9.4.0.10</rocksdbVersion>
 		<slf4jVersion>2.0.9</slf4jVersion>
 	</properties>
 
@@ -238,7 +238,7 @@
 					<artifactId>maven-compiler-plugin</artifactId>
 					<version>3.12.1</version>
 					<configuration>
-						<release>11</release>
+						<release>17</release>
 					</configuration>
 				</plugin>
 				<plugin>
@@ -291,7 +291,7 @@
 					<artifactId>maven-javadoc-plugin</artifactId>
 					<version>3.6.3</version>
 					<configuration>
-						<release>11</release>
+						<release>17</release>
 						<author>false</author>
 						<breakiterator>true</breakiterator>
 						<additionalOptions>
@@ -353,7 +353,7 @@
 				<plugin>
 					<groupId>org.yamcs</groupId>
 					<artifactId>yamcs-maven-plugin</artifactId>
-					<version>1.3.1</version>
+					<version>1.3.2</version>
 				</plugin>
 			</plugins>
 		</pluginManagement>

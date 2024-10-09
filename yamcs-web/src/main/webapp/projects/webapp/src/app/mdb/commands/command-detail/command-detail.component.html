@@ -22,7 +22,7 @@
   <dt>Short description</dt>
   <dd>{{ command.shortDescription || "-" }}</dd>
 
-  <dt>Long Description</dt>
+  <dt>Long description</dt>
   <dd>
     @if (command.longDescription) {
       <app-markdown [text]="command.longDescription" />
@@ -238,22 +238,38 @@
               <td>Argument</td>
               <td>{{ entry.argument.name }}</td>
               <td>{{ entry.argument.type.dataEncoding.sizeInBits }}</td>
-            }
-            @if (entry.parameter) {
+            } @else if (entry.parameter) {
               <td>Parameter</td>
               <td>
                 <a
                   [routerLink]="['/mdb/parameters/', entry.parameter.qualifiedName]"
-                  [queryParams]="{ c: yamcs.context }">
+                  [queryParams]="{ c: yamcs.context }"
+                  class="ya-link">
                   {{ entry.parameter.qualifiedName }}
                 </a>
               </td>
               <td>{{ entry.parameter.type?.dataEncoding?.sizeInBits ?? "-" }}</td>
-            }
-            @if (entry.fixedValue) {
+            } @else if (entry.fixedValue) {
               <td>Fixed value</td>
               <td>{{ entry.fixedValue.name }}: 0x{{ entry.fixedValue.hexValue }}</td>
               <td>{{ entry.fixedValue.sizeInBits }}</td>
+            } @else if (entry.indirectParameterRef) {
+              <td>Indirect parameter</td>
+              <td>
+                <a
+                  [routerLink]="[
+                    '/mdb/parameters/',
+                    entry.indirectParameterRef.parameter.qualifiedName,
+                  ]"
+                  [queryParams]="{ c: yamcs.context }"
+                  class="ya-link">
+                  {{ entry.indirectParameterRef.parameter.qualifiedName }}
+                  @if (entry.indirectParameterRef.aliasNamespace; as namespace) {
+                    ({{ namespace }})
+                  }
+                </a>
+              </td>
+              <td>-</td>
             }
             <td>{{ entry.locationInBits }}</td>
             <td>{{ entry.referenceLocation }}</td>

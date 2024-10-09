@@ -25,7 +25,6 @@ import org.yamcs.client.archive.ArchiveClient.RangeOptions.MinimumGapOption;
 import org.yamcs.client.archive.ArchiveClient.RangeOptions.MinimumRangeOption;
 import org.yamcs.client.archive.ArchiveClient.RangeOptions.RangeOption;
 import org.yamcs.client.archive.ArchiveClient.StreamOptions.CommandOption;
-import org.yamcs.client.archive.ArchiveClient.StreamOptions.EventSourceOption;
 import org.yamcs.client.archive.ArchiveClient.StreamOptions.MergeTimeOption;
 import org.yamcs.client.archive.ArchiveClient.StreamOptions.PacketOption;
 import org.yamcs.client.archive.ArchiveClient.StreamOptions.StreamOption;
@@ -478,26 +477,36 @@ public class ArchiveClient {
         return f;
     }
 
-    public CompletableFuture<Page<Event>> listEvents() {
-        return listEvents(null, null);
+    public CompletableFuture<Page<Event>> listEvents(ListOption... options) {
+        return listEvents(null, null, options);
     }
 
-    public CompletableFuture<Page<Event>> listEvents(Instant start, Instant stop) {
-        ListEventsRequest.Builder requestb = ListEventsRequest.newBuilder()
-                .setInstance(instance);
+    public CompletableFuture<Page<Event>> listEvents(Instant start, Instant stop, ListOption... options) {
+        var requestb = ListEventsRequest.newBuilder().setInstance(instance);
         if (start != null) {
             requestb.setStart(Timestamp.newBuilder().setSeconds(start.getEpochSecond()).setNanos(start.getNano()));
         }
         if (stop != null) {
             requestb.setStop(Timestamp.newBuilder().setSeconds(stop.getEpochSecond()).setNanos(stop.getNano()));
         }
+        for (var option : options) {
+            if (option instanceof ListOptions.FilterOption o) {
+                requestb.setFilter(o.filter);
+            } else if (option instanceof ListOptions.AscendingOption o) {
+                requestb.setOrder(o.ascending ? "asc" : "desc");
+            } else if (option instanceof ListOptions.LimitOption o) {
+                requestb.setLimit(o.limit);
+            } else {
+                throw new IllegalArgumentException("Unsupported option " + option.getClass());
+            }
+        }
+
         return new EventPage(requestb.build()).future();
     }
 
     public CompletableFuture<Void> streamEvents(StreamReceiver<Event> consumer, Instant start, Instant stop,
             StreamOption... options) {
-        StreamEventsRequest.Builder requestb = StreamEventsRequest.newBuilder()
-                .setInstance(instance);
+        var requestb = StreamEventsRequest.newBuilder().setInstance(instance);
         if (start != null) {
             requestb.setStart(Timestamp.newBuilder().setSeconds(start.getEpochSecond()).setNanos(start.getNano()));
         }
@@ -505,10 +514,12 @@ public class ArchiveClient {
             requestb.setStop(Timestamp.newBuilder().setSeconds(stop.getEpochSecond()).setNanos(stop.getNano()));
         }
         for (StreamOption option : options) {
-            if (option instanceof EventSourceOption) {
-                for (String source : ((EventSourceOption) option).eventSources) {
+            if (option instanceof StreamOptions.EventSourceOption o) {
+                for (String source : o.eventSources) {
                     requestb.addSource(source);
                 }
+            } else if (option instanceof StreamOptions.FilterOption o) {
+                requestb.setFilter(o.filter);
             } else {
                 throw new IllegalArgumentException("Unsupported option " + option.getClass());
             }
@@ -734,7 +745,7 @@ public class ArchiveClient {
                 .setInstance(instance);
         CompletableFuture<ListEventSourcesResponse> f = new CompletableFuture<>();
         eventService.listEventSources(null, requestb.build(), new ResponseObserver<>(f));
-        return f.thenApply(response -> new ArrayList<>(response.getSourceList()));
+        return f.thenApply(response -> new ArrayList<>(response.getSourcesList()));
     }
 
     public CompletableFuture<Void> dumpTable(String table, StreamReceiver<Row> consumer) {
@@ -787,7 +798,7 @@ public class ArchiveClient {
     private class CommandPage extends AbstractPage<ListCommandsRequest, ListCommandsResponse, Command> {
 
         public CommandPage(ListCommandsRequest request) {
-            super(request, "entry");
+            super(request, "commands");
         }
 
         @Override
@@ -811,7 +822,7 @@ public class ArchiveClient {
     private class EventPage extends AbstractPage<ListEventsRequest, ListEventsResponse, Event> {
 
         public EventPage(ListEventsRequest request) {
-            super(request, "event");
+            super(request, "events");
         }
 
         @Override
@@ -929,6 +940,10 @@ public class ArchiveClient {
             return new SourceOption(source);
         }
 
+        public static ListOption filter(String filter) {
+            return new FilterOption(filter);
+        }
+
         static final class AscendingOption implements ListOption {
             final boolean ascending;
 
@@ -942,6 +957,14 @@ public class ArchiveClient {
 
             public LimitOption(int limit) {
                 this.limit = limit;
+            }
+        }
+
+        static final class FilterOption implements ListOption {
+            final String filter;
+
+            public FilterOption(String filter) {
+                this.filter = filter;
             }
         }
 
@@ -1042,6 +1065,14 @@ public class ArchiveClient {
 
             public PacketOption(String... packets) {
                 this.packets = packets;
+            }
+        }
+
+        static final class FilterOption implements StreamOption {
+            final String filter;
+
+            public FilterOption(String filter) {
+                this.filter = filter;
             }
         }
 

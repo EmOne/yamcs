@@ -1,7 +1,7 @@
 import { Component, Inject, OnDestroy } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { DownloadEventsOptions, WebappSdkModule, YaSelectOption, YamcsService, utils } from '@yamcs/webapp-sdk';
+import { DownloadEventsOptions, WebappSdkModule, YamcsService, utils } from '@yamcs/webapp-sdk';
 import { BehaviorSubject, Subscription } from 'rxjs';
 
 @Component({
@@ -13,12 +13,6 @@ import { BehaviorSubject, Subscription } from 'rxjs';
 })
 export class ExportEventsDialogComponent implements OnDestroy {
 
-  delimiterOptions: YaSelectOption[] = [
-    { id: 'COMMA', label: 'Comma' },
-    { id: 'SEMICOLON', label: 'Semicolon' },
-    { id: 'TAB', label: 'Tab' },
-  ];
-
   private formChangeSubscription: Subscription;
 
   downloadURL$ = new BehaviorSubject<string | null>(null);
@@ -27,7 +21,7 @@ export class ExportEventsDialogComponent implements OnDestroy {
     start: new UntypedFormControl(null),
     stop: new UntypedFormControl(null),
     severity: new UntypedFormControl(null, Validators.required),
-    q: new UntypedFormControl(null),
+    filter: new UntypedFormControl(null),
     source: new UntypedFormControl([]),
     delimiter: new UntypedFormControl(null, Validators.required),
   });
@@ -40,7 +34,7 @@ export class ExportEventsDialogComponent implements OnDestroy {
     this.form.setValue({
       start: data.start ? utils.toISOString(data.start) : '',
       stop: data.stop ? utils.toISOString(data.stop) : '',
-      q: data.q || '',
+      filter: data.filter || '',
       source: data.source,
       severity: data.severity,
       delimiter: 'TAB',
@@ -69,8 +63,8 @@ export class ExportEventsDialogComponent implements OnDestroy {
       if (this.form.value['stop']) {
         dlOptions.stop = utils.toISOString(this.form.value['stop']);
       }
-      if (this.form.value['q']) {
-        dlOptions.q = this.form.value['q'];
+      if (this.form.value['filter']) {
+        dlOptions.filter = this.form.value['filter'];
       }
       if (this.form.value['source'].length) {
         const source = this.form.value['source'];

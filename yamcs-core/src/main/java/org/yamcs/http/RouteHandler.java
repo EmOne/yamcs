@@ -1,5 +1,12 @@
 package org.yamcs.http;
 
+import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_LENGTH;
+import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
+import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
+import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledFuture;
@@ -11,6 +18,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.yamcs.YamcsServer;
+import org.yamcs.api.ExceptionMessage;
 import org.yamcs.http.audit.AuditLog;
 import org.yamcs.logging.Log;
 
@@ -19,10 +27,16 @@ import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.MethodDescriptor;
 import com.google.protobuf.Message;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufOutputStream;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 @Sharable
 public class RouteHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
@@ -30,16 +44,19 @@ public class RouteHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     private static final Log log = new Log(RouteHandler.class);
     private static final Pattern LOG_PARAM_PATTERN = Pattern.compile("\\{(\\w+)\\}");
 
+    private int maxPageSize;
     private boolean logSlowRequests = true;
     private ScheduledThreadPoolExecutor timer = new ScheduledThreadPoolExecutor(1);
 
-    // this is used to execute the routes marked as offloaded
+    // Execute routes marked as offloaded
     private final ExecutorService workerPool;
 
-    public RouteHandler() {
+    public RouteHandler(int maxPageSize) {
+        this.maxPageSize = maxPageSize;
+
         ThreadFactory tf = new ThreadFactoryBuilder().setNameFormat("YamcsHttpExecutor-%d").setDaemon(false).build();
         workerPool = new ThreadPoolExecutor(0, 2 * Runtime.getRuntime().availableProcessors(), 60, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<Runnable>(), tf);
+                new LinkedBlockingQueue<>(), tf);
     }
 
     @Override
@@ -139,11 +156,11 @@ public class RouteHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     }
 
     // Protect paged calls against excessive memory allocation
-    private static void assertSafe(Message message) {
+    private void assertSafe(Message message) {
         FieldDescriptor limitField = message.getDescriptorForType().findFieldByName("limit");
         if (limitField != null && message.hasField(limitField)) {
             Number limit = (Number) message.getField(limitField);
-            if (limit.intValue() > 1000) {
+            if (limit.intValue() > maxPageSize) {
                 throw new BadRequestException("Limit parameter is too large");
             }
         }
@@ -160,7 +177,43 @@ public class RouteHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
         } else {
             log.warn("{}: Responding '{}': {}", ctx, e.getStatus(), e.getMessage());
         }
-        CallObserver.sendError(ctx, e);
+
+        if (t instanceof InternalServerErrorException) {
+            log.error("Internal server error while handling call", t);
+        } else if (log.isDebugEnabled()) {
+            log.debug("User error while handling call", t);
+        }
+        ExceptionMessage msg = e.toMessage();
+        ctx.reportStatusCode(e.getStatus().code());
+        sendMessageResponse(ctx, e.getStatus(), msg);
+    }
+
+    private <T extends Message> ChannelFuture sendMessageResponse(RouteContext ctx, HttpResponseStatus status,
+            T responseMsg) {
+        ByteBuf body = ctx.nettyContext.alloc().buffer();
+        MediaType contentType = HttpRequestHandler.getAcceptType(ctx.nettyRequest);
+
+        try {
+            if (contentType == MediaType.PROTOBUF) {
+                try (ByteBufOutputStream channelOut = new ByteBufOutputStream(body)) {
+                    responseMsg.writeTo(channelOut);
+                }
+            } else if (contentType == MediaType.PLAIN_TEXT) {
+                body.writeCharSequence(responseMsg.toString(), StandardCharsets.UTF_8);
+            } else { // JSON by default
+                contentType = MediaType.JSON;
+                String str = ctx.printJson(responseMsg);
+                body.writeCharSequence(str, StandardCharsets.UTF_8);
+            }
+        } catch (IOException e) {
+            return HttpRequestHandler.sendPlainTextError(ctx.nettyContext, ctx.nettyRequest, INTERNAL_SERVER_ERROR,
+                    e.toString());
+        }
+        HttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, status, body);
+        response.headers().set(CONTENT_TYPE, contentType.toString());
+        response.headers().set(CONTENT_LENGTH, body.readableBytes());
+
+        return HttpRequestHandler.sendResponse(ctx.nettyContext, ctx.nettyRequest, response);
     }
 
     private void createAuditRecord(RouteContext ctx, Message message) {
